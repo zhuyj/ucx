@@ -851,6 +851,7 @@ static unsigned sock_rte_group_index(void *rte_group)
 static void sock_rte_barrier(void *rte_group, void (*progress)(void *arg),
                              void *arg)
 {
+#if 0
 #pragma omp barrier
 
 #pragma omp master
@@ -864,10 +865,10 @@ static void sock_rte_barrier(void *rte_group, void (*progress)(void *arg),
 
     sync = 0;
     safe_recv(group->connfd, &sync, sizeof(unsigned), progress, arg);
-
     ucs_assert(sync == magic);
   }
 #pragma omp barrier
+#endif
 }
 
 static void sock_rte_post_vec(void *rte_group, const struct iovec *iovec,
@@ -911,6 +912,7 @@ static void sock_rte_report(void *rte_group, const ucx_perf_result_t *result,
                             void *arg, int is_final)
 {
     struct perftest_context *ctx = arg;
+
     print_progress(ctx->test_names, ctx->num_batch_files, result, ctx->flags,
                    is_final);
 }
@@ -1507,7 +1509,7 @@ out:
     return status;
 }
 
-static ucs_status_t run_test(struct perftest_context *ctx)
+static ucs_status_t _run_test(struct perftest_context *ctx)
 {
     ucs_status_t status;
 
@@ -1521,10 +1523,21 @@ static ucs_status_t run_test(struct perftest_context *ctx)
     if (status != UCS_OK) {
         ucs_error("Failed to run test: %s", ucs_status_string(status));
     }
-
     return status;
 }
 
+void *run_test(void *arg)
+{
+    struct perftest_context *ctx = (struct perftest_context *)arg;
+    ucs_status_t status;
+
+    status = _run_test(ctx);
+
+    return ((void *)status);
+}
+
+struct perftest_context  g_ctx[512];
+pthread_t                ntid[512];
 int main(int argc, char **argv)
 {
     struct perftest_context ctx;
@@ -1532,6 +1545,7 @@ int main(int argc, char **argv)
     int mpi_initialized;
     int mpi_rte;
     int ret;
+    int i;
 
 #if HAVE_MPI
     mpi_initialized = !isatty(0) && (MPI_Init(&argc, &argv) == 0);
@@ -1568,19 +1582,36 @@ int main(int argc, char **argv)
     }
 
     /* Create RTE */
-    status = (mpi_rte) ? setup_mpi_rte(&ctx) : setup_sock_rte(&ctx);
-    if (status != UCS_OK) {
-        ret = -1;
-        goto out;
-    }
+    i = 0;
+    if (ctx.server_addr == NULL) {
+        memcpy(&g_ctx[i], &ctx, sizeof(struct perftest_context));
+        while (setup_sock_rte(&g_ctx[i]) == UCS_OK) {
+            ctx.port += 10;
+            pthread_create(&ntid[i], NULL, run_test, &g_ctx[i]);
+            i++;
+            memcpy(&g_ctx[i], &ctx, sizeof(struct perftest_context));
+            if (i == ctx.params.thread_count)
+                break;
+        }
 
-    /* Run the test */
-    status = run_test(&ctx);
-    if (status != UCS_OK) {
-        ret = -1;
-        goto out_cleanup_rte;
-    }
+        for (i=0; i<ctx.params.thread_count; i++) {
+            pthread_join(ntid[i], NULL);
+        }
+    } else {
+        for (i=0; i<ctx.params.thread_count; i++) {
 
+            memcpy(&g_ctx[i], &ctx, sizeof(struct perftest_context));
+            g_ctx[i].port += i * 10;
+            g_ctx[i].params.thread_mode = UCS_THREAD_MODE_SINGLE;
+            status = (mpi_rte) ? setup_mpi_rte(&ctx) : setup_sock_rte(&g_ctx[i]);
+            pthread_create(&ntid[i], NULL, run_test, &g_ctx[i]);
+            sleep(3);
+        }
+
+        for (i=0; i<ctx.params.thread_count; i++) {
+            pthread_join(ntid[i], NULL);
+        }
+    }
     ret = 0;
 
 out_cleanup_rte:

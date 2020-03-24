@@ -1615,7 +1615,6 @@ ucs_status_t ucx_perf_run(ucx_perf_params_t *params, ucx_perf_result_t *result)
     }
 
     ucx_perf_test_init(perf, params);
-
     if (perf->allocator == NULL) {
         ucs_error("Unsupported memory types %s<->%s",
                   ucs_memory_type_names[params->send_mem_type],
@@ -1641,7 +1640,6 @@ ucs_status_t ucx_perf_run(ucx_perf_params_t *params, ucx_perf_result_t *result)
     if (status != UCS_OK) {
         goto out_free;
     }
-
     if (UCS_THREAD_MODE_SINGLE == params->thread_mode) {
         if (params->warmup_iter > 0) {
             ucx_perf_set_warmup(perf, params);
@@ -1649,7 +1647,6 @@ ucs_status_t ucx_perf_run(ucx_perf_params_t *params, ucx_perf_result_t *result)
             if (status != UCS_OK) {
                 goto out_cleanup;
             }
-
             ucx_perf_funcs[params->api].barrier(perf);
             ucx_perf_test_prepare_new_run(perf, params);
         }
@@ -1657,9 +1654,10 @@ ucs_status_t ucx_perf_run(ucx_perf_params_t *params, ucx_perf_result_t *result)
         /* Run test */
         status = ucx_perf_funcs[params->api].run(perf);
         ucx_perf_funcs[params->api].barrier(perf);
-        if (status == UCS_OK) {
-            ucx_perf_calc_result(perf, result);
-            rte_call(perf, report, result, perf->params.report_arg, 1);
+        if (status != UCS_OK) {
+            //ucx_perf_calc_result(perf, result);
+            //rte_call(perf, report, result, perf->params.report_arg, 1);
+            fprintf(stderr, "perf is wrong\n");
         }
     } else {
         status = ucx_perf_thread_spawn(perf, result);

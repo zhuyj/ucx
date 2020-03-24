@@ -182,7 +182,7 @@ static inline void ucx_perf_update(ucx_perf_context_t *perf,
 
     perf->prev_time = perf->current.time;
 
-    if (perf->current.time - perf->prev.time >= perf->report_interval) {
+    if ((perf->current.time - perf->prev.time >= perf->report_interval) || (perf->current.iters == perf->max_iter)) {
         ucx_perf_get_time(perf);
 
         /* Disable all other threads' report generation and output.
@@ -191,7 +191,8 @@ static inline void ucx_perf_update(ucx_perf_context_t *perf,
          * using that clause will result in undefined behavior.
          */
 #if _OPENMP
-        if (omp_get_thread_num() == 0)
+//        if (omp_get_thread_num() == 0)
+//        if (omp_get_num_threads() == 1)
 #endif /* _OPENMP */
         {
             ucx_perf_calc_result(perf, &result);
